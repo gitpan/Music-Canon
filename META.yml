@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Music-Canon
-version:            0.12
+version:            0.20
 abstract:           routines for musical canon construction
 author:
     - Jeremy Mates <jmates@cpan.org>

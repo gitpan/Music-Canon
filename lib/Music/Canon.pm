@@ -16,7 +16,7 @@ use Music::LilyPondUtil ();    # transpose convenience
 use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
 
-our $VERSION = '0.12';
+our $VERSION = '0.20';
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
@@ -80,7 +80,7 @@ sub exact_map {
     undef $self->{_exact}->{prev_output};
   }
 
-  return @new_phrase;
+  return @new_phrase == 1 ? $new_phrase[0] : @new_phrase;
 }
 
 sub exact_map_reset {
@@ -106,12 +106,7 @@ sub get_scale_intervals {
   if ( !defined $layer or ( $layer ne 'input' and $layer ne 'output' ) ) {
     croak "unsupported layer (must be 'input' or 'output')\n";
   }
-  if ( !exists $self->{$layer}->{1}->{intervals}
-    or !exists $self->{$layer}->{-1}->{intervals} ) {
-    croak "scale intervals for $layer not previously set\n";
-  }
-  return $self->{$layer}->{1}->{intervals},
-    $self->{$layer}->{-1}->{intervals};
+  return $self->{$layer}->{1}, $self->{$layer}->{-1};
 }
 
 sub get_transpose {
@@ -129,14 +124,6 @@ sub get_transpose {
 # and also the various contrary, retrograde, and transpose parameters.
 sub modal_map {
   my $self = shift;
-
-  # default to major/major conversion
-  if ( !exists $self->{input} ) {
-    $self->scale_intervals( 'input', 'major' );
-  }
-  if ( !exists $self->{output} ) {
-    $self->scale_intervals( 'output', 'major' );
-  }
 
   my @new_phrase;
   my $obj_index = 0;
@@ -163,7 +150,7 @@ sub modal_map {
     if ( !defined $self->{_modal}->{output_start_pitch} ) {
       # copy at transpose offset if nothing prior, set things up for the
       # subsequent calculations, which are all done relative to this
-      # known linking point between the two different modes.
+      # known linking point between the input and output modes.
       my $trans;
       if ( !looks_like_number( $self->{_transpose} ) ) {
         eval {
@@ -179,68 +166,38 @@ sub modal_map {
 
     } else {
       # modal mapping - diatonic where possible, chromatic or undefined
-      # otherwise. Gist of the logic is to figure out how many diatonic
-      # steps (or substeps for chromaics) there are via the input mode,
-      # then replay that may number of steps (or substeps for
-      # chromatics, if possible) in the appropriate output mode, as
-      # modified by the contrary and transpose parameters.
+      # otherwise, depending on how the input and output modes twine.
 
-      my %input;
-      $input{delta} = $pitch - $self->{_modal}->{input_start_pitch};
-      my $dir = $input{delta} < 0 ? -1 : 1;
+      my $delta = $pitch - $self->{_modal}->{input_start_pitch};
+      my $dir = $delta < 0 ? -1 : 1;
+      $delta = abs $delta;
 
-      $input{cycles} =
-        int abs( $input{delta} ) / $self->{input}->{$dir}->{sum};
-      $input{remainder} =
-        abs( $input{delta} ) % $self->{input}->{$dir}->{sum};
-
-      my $steps            = $input{cycles} * $self->{input}->{$dir}->{sum};
+      my $steps            = 0;    # counter and lookup index so from zero
       my $running_total    = 0;
       my $chromatic_offset = 0;
-      for my $step ( @{ $self->{input}->{$dir}->{intervals} } ) {
-        $running_total += $step;
-        $steps++;
-        if ( $running_total >= $input{remainder} ) {
-          $chromatic_offset = $running_total - $input{remainder};
-          last;
+      while ( $running_total < $delta ) {
+        $running_total +=
+          $self->{input}->{$dir}->[ $steps++ % @{ $self->{input}->{$dir} } ];
+      }
+      if ( $running_total != $delta ) {
+        $chromatic_offset = $running_total - $delta;
+      }
+
+      $dir = int( $dir * -1 ) if $self->{_contrary};
+
+      my $new_interval = 0;
+      if ($steps) {
+        for my $s ( 0 .. $steps - 1 ) {
+          $new_interval +=
+            $self->{output}->{$dir}->[ $s % @{ $self->{output}->{$dir} } ];
         }
       }
 
-      # dbg input audit
-      #use Data::Dumper; warn Dumper \%input, $steps;
-
-      my %output;
-      $dir *= -1 if $self->{_contrary};
-
-      # dbg direction seemed fine
-
-      # so now from steps back to an interval and direction, and from those a
-      # new pitch for the new phrase. Will be N many steps, and if not
-      # chromatic, we're done, as diatonic will always map to something.
-      $output{cycles} =
-        int $steps / @{ $self->{output}->{$dir}->{intervals} };
-      $output{remainder} =
-        $steps % @{ $self->{output}->{$dir}->{intervals} };
-
-      # dbg steps look find in output...
-      #use Data::Dumper; warn Dumper \%output, $dir;
-
-      my ( @slice, $step_index );
-      if ( $dir < 0 ) {
-        $step_index =
-          $#{ $self->{output}->{$dir}->{intervals} } - $output{remainder} + 1;
-        @slice = $step_index .. $#{ $self->{output}->{$dir}->{intervals} };
-      } else {
-        $step_index = $output{remainder} - 1;
-        @slice      = 0 .. $step_index;
-      }
-
-      my $interval = $self->{output}->{$dir}->{sum} * $output{cycles} +
-        sum @{ $self->{output}->{$dir}->{intervals} }[@slice];
-
+      my $step_interval;
       if ($chromatic_offset) {
-        my $step_interval =
-          $self->{output}->{$dir}->{intervals}->[$step_index];
+        $step_interval =
+          $self->{output}->{$dir}
+          ->[ --$steps % @{ $self->{output}->{$dir} } ];
         if ( $chromatic_offset >= $step_interval ) {
           # NOTE thought about doing a hook function here, but that
           # would require tricky code to integrate properly with both
@@ -250,12 +207,12 @@ sub modal_map {
           # note the conversion blew up on.)
           croak "undefined chromatic conversion at index $obj_index\n";
         } else {
-          $interval -= $chromatic_offset;
+          $new_interval -= $chromatic_offset;
         }
       }
 
-      $interval *= $dir;
-      $new_pitch = $self->{_modal}->{output_start_pitch} + $interval;
+      $new_interval = int( $new_interval * $dir );
+      $new_pitch    = $self->{_modal}->{output_start_pitch} + $new_interval;
     }
 
     push @new_phrase, $new_pitch;
@@ -270,7 +227,7 @@ sub modal_map {
     undef $self->{_modal}->{output_start_pitch};
   }
 
-  return @new_phrase;
+  return @new_phrase == 1 ? $new_phrase[0] : @new_phrase;
 }
 
 sub modal_map_reset {
@@ -317,6 +274,14 @@ sub new {
     if ( exists $param{output} ) {
       $self->set_scale_intervals( 'output', $param{output} );
     }
+
+    # otherwise default to major/major conversion
+    if ( !exists $self->{input} ) {
+      $self->set_scale_intervals( 'input', 'major' );
+    }
+    if ( !exists $self->{output} ) {
+      $self->set_scale_intervals( 'output', 'major' );
+    }
   };
   croak $@ if $@;
 
@@ -360,6 +325,10 @@ sub set_scale_intervals {
     croak "unsupported layer (must be 'input' or 'output')\n";
   }
 
+  # reset anything extant as some methods push
+  $self->{$layer}->{1}  = [];
+  $self->{$layer}->{-1} = [];
+
   my $is_scale = 0;
   if ( ref $asc eq 'ARRAY' ) {
     # Assume arbitrary list of intervals as integers if array ref
@@ -367,14 +336,14 @@ sub set_scale_intervals {
       croak "ascending intervals must be integers\n"
         unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
     }
-    $self->{$layer}->{1}->{intervals} = $asc;
+    $self->{$layer}->{1} = $asc;
 
   } elsif ( $asc =~ m/($FORTE_NUMBER_RE)/ ) {
     # derive scale intervals from pitches of the named Forte Number
     my $pset = $self->{_atu}->forte2pcs($1);
     croak "no such Forte Number" unless defined $pset;
 
-    $self->{$layer}->{1}->{intervals} = $self->{_atu}->pcs2intervals($pset);
+    $self->{$layer}->{1} = $self->{_atu}->pcs2intervals($pset);
 
   } else {
     # derive intervals via scale name via third-party module
@@ -384,13 +353,11 @@ sub set_scale_intervals {
     @dsc_nums = get_scale_nums( $asc, 1 ) unless defined $dsc;
 
     for my $i ( 1 .. $#asc_nums ) {
-      push @{ $self->{$layer}->{1}->{intervals} },
-        $asc_nums[$i] - $asc_nums[ $i - 1 ];
+      push @{ $self->{$layer}->{1} }, $asc_nums[$i] - $asc_nums[ $i - 1 ];
     }
     if (@dsc_nums) {
-      for my $i ( reverse 1 .. $#dsc_nums ) {
-        push @{ $self->{$layer}->{-1}->{intervals} },
-          $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
+      for my $i ( 1 .. $#dsc_nums ) {
+        push @{ $self->{$layer}->{-1} }, $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
       }
     }
     $is_scale = 1;
@@ -400,7 +367,7 @@ sub set_scale_intervals {
     # Assume descending equals ascending (true in most cases, except
     # melodic minor and similar), unless a scale was involved, as the
     # Music::Scales code should already have setup the descending bit.
-    $self->{$layer}->{-1}->{intervals} = $self->{$layer}->{1}->{intervals}
+    $self->{$layer}->{-1} = [ reverse @{ $self->{$layer}->{1} } ]
       unless $is_scale;
   } else {
     if ( ref $dsc eq 'ARRAY' ) {
@@ -408,45 +375,43 @@ sub set_scale_intervals {
         croak "descending intervals must be integers\n"
           unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
       }
-      $self->{$layer}->{-1}->{intervals} = $dsc;
+      $self->{$layer}->{-1} = $dsc;
 
     } elsif ( $dsc =~ m/($FORTE_NUMBER_RE)/ ) {
       # derive scale intervals from pitches of the named Forte Number
       my $pset = $self->{_atu}->forte2pcs($1);
       croak "no such Forte Number" unless defined $pset;
 
-      $self->{$layer}->{-1}->{intervals} =
-        $self->{_atu}->pcs2intervals($pset);
+      $self->{$layer}->{-1} =
+        [ reverse @{ $self->{_atu}->pcs2intervals($pset) } ];
 
     } else {
       croak "descending scale unknown to Music::Scales\n"
         unless is_scale($dsc);
       my @dsc_nums = get_scale_nums( $dsc, 1 );
 
-      for my $i ( reverse 1 .. $#dsc_nums ) {
-        push @{ $self->{$layer}->{-1}->{intervals} },
-          $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
+      for my $i ( 1 .. $#dsc_nums ) {
+        push @{ $self->{$layer}->{-1} }, $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
       }
     }
   }
 
   # Complete scales to sum to 12 by default (Music::Scales omits the VII
   # to I interval, and who knows what a custom list would contain).
-  if ( !$self->{non_octave_scales} ) {
-    for my $ref ( $self->{$layer}->{1}->{intervals},
-      $self->{$layer}->{-1}->{intervals} ) {
-      my $interval_sum = sum @$ref;
-      if ( $interval_sum < $self->{_DEG_IN_SCALE} ) {
-        push @$ref, $self->{_DEG_IN_SCALE} - $interval_sum;
-      } elsif ( $interval_sum > $self->{_DEG_IN_SCALE} ) {
-        croak "non-octave scales require non_octave_scales param\n";
-      }
+  if ( !$self->{_non_octave_scales} ) {
+    my $asc_sum = sum @{ $self->{$layer}->{1} };
+    if ( $asc_sum < $self->{_DEG_IN_SCALE} ) {
+      push @{ $self->{$layer}->{1} }, $self->{_DEG_IN_SCALE} - $asc_sum;
+    } elsif ( $asc_sum > $self->{_DEG_IN_SCALE} ) {
+      croak "non-octave scales require non_octave_scales param\n";
+    }
+    my $dsc_sum = sum @{ $self->{$layer}->{-1} };
+    if ( $dsc_sum < $self->{_DEG_IN_SCALE} ) {
+      unshift @{ $self->{$layer}->{-1} }, $self->{_DEG_IN_SCALE} - $dsc_sum;
+    } elsif ( $dsc_sum > $self->{_DEG_IN_SCALE} ) {
+      croak "non-octave scales require non_octave_scales param\n";
     }
   }
-  $self->{$layer}->{1}->{sum} =
-    sum @{ $self->{$layer}->{1}->{intervals} };
-  $self->{$layer}->{-1}->{sum} =
-    sum @{ $self->{$layer}->{-1}->{intervals} };
 
   return $self;
 }
@@ -495,8 +460,8 @@ And more!
 Musical canons involve horizontal lines of music (often called voices)
 that are combined with other canon or free counterpoint voices to
 produce harmony. This module assists with the creation of new voices.
-Whether or not the output is usable is left to the composer. Harmony can
-be created by careful selection of the input material and the mapping
+Whether the output is usable is left to the composer. Harmony can be
+created by careful selection of the input material and the mapping
 settings, or perhaps by adding a free counterpoint voice to support the
 canon voices. Analyzing the results with L<Music::Tension> may help
 search for suitable material.
@@ -513,6 +478,13 @@ L</"SEE ALSO"> section lists resources for learning these.
 Methods may B<die> or B<croak> under various conditions. B<new> would be
 a good one to start with, then one of the C<*_map> functions to
 transform the list of pitches into new material.
+
+Most methods, notably the C<*_map> methods, operate only on pitch
+numbers. Some methods also accept lilypond note names (via
+L<Music::LilyPondUtil>). Use B<notes2pitches> of L<Music::LilyPondUtil>
+to convert notes to pitches suitable for passing to a C<*_map> function.
+Otherwise, MIDI pitch numbers could easily be fed to the mapping
+methods, or objects that have a B<pitch> method.
 
 =over 4
 
@@ -555,56 +527,57 @@ way to indicate that the output list be reversed.
 
 =item B<get_scale_intervals> I<layer>
 
-Returns the current scale intervals for the indicated I<layer> (C<input>
-or C<output>), or throws an exception if these are unset. The intervals
-are returned as a list of two array references, the first for the scale
+Returns the scale intervals for the indicated I<layer> (C<input> or
+C<output>), or throws an exception if these are unset. The intervals are
+returned as a list of two array references, the first for the scale
 ascending, the second for the scale descending.
 
-Note that descending scale intervals are noted from the lowest note up,
-not highest note down.
+Note that descending scale intervals are noted from the highest note down.
 
 =item B<get_transpose>
 
 Returns the current transpose setting (integer of semitones or lilypond
-note name, depending). Lilypond note names are preserved until
-necessary, as to transpose to a lilypond note name, one must have the
-pitch being transposed from, so that the delta between those two
-pitches can be derived. Otherwise, given an integer, the transpose is
-by that amount.
+note name, depending on what was previously set).
 
 =item B<modal_map> I<phrase>
 
 Modal mapping of the pitches in I<phrase> from an arbitrary input mode
-to an arbitrary output mode, as set by B<set_scale_intervals>. Returns a
-list, or throws an exception if a pitch cannot be converted. I<phrase>
-may be a list or an array reference, and may contain raw pitch numbers,
-objects that support a B<pitch> method, or other data that will be
-passed through unchanged.
+to an arbitrary output mode, as set by B<set_scale_intervals>, or the
+Major scale by default. Returns a list, or throws an exception if a
+pitch cannot be converted. I<phrase> may be a list or an array
+reference, and may contain raw pitch numbers, objects that support a
+B<pitch> method, or other data that will be passed through unchanged.
+
+NOTE B<modal_map> is somewhat experimental, so likely has edge cases or
+bugs unknown to me. Consult the tests under the module distribution
+C<t/> directory for what cases are covered.
 
 The algorithm operates by converting the intervals between the notes
-into a number of diatonic steps in the input mode (and chromatic
-adjustment, if necessary), then replaying that many steps in the output
-(and chromatic adjustment, if necessary) mode, using the starting
-pitches of the input phrase (first note) and output phrase (first note
-of input phrase as affected by the B<transpose> setting) as the linkage
-between the two modes.
+into diatonic steps via the input mode, then replicates that many steps
+in the output mode, followed by any necessary chromatic adjustments. The
+initial starting pitches (derived from the input phrase and transpose
+setting, or via pitches set via the B<set_modal_pitches> method) form
+the point of linkage between the two arbitrary scales or modes or really
+arbitrary interval sequences.
 
-An example may help illustrate this function. By default, the Major
-scale to the Major scale conversion is used, which, with other
-defaults set by this module, uses something like the following chart
-to convert notes:
+An example may help illustrate this function. Assuming Major to Major
+conversion, contrary motion, and a transposition by an octave (12
+semitones), the software will convert pitches as shown in this chart:
 
+        0    1    2   3    4   5   6    7   8    9   10  11  12
   In  | C  | c# | D | d# | E | F | f# | G | g# | A | a# | B | C' |
   Out | C' | x  | B | a# | A | G | f# | F | x  | E | d# | D | C  |
+       12        11   10   9   7   6    5        4   3    2   0
 
 Assuming an input phrase of C<C G c#>, the output phrase would be C<C'
 F> and then an exception would be thrown, as there is no way to convert
-C<c#> using this mapping and transposition. Other mappings and
+C<c#> using this modal mapping and transposition. Other mappings and
 transpositions will have between zero to several notes that cannot be
 converted.
 
 B<modal_map> is affected by various settings, notably B<set_contrary>,
-B<set_retrograde>, B<set_scale_intervals>, and B<set_transpose>.
+B<set_modal_pitches>, B<set_retrograde>, B<set_scale_intervals>, and
+B<set_transpose>.
 
 Be sure to call B<modal_map_reset> when done converting a phrase.
 
@@ -624,7 +597,7 @@ are listed here.
 
 =item *
 
-I<contrary> - sets the B<contrary> option. On by default.
+I<contrary> - sets the B<contrary> boolean. On by default.
 
 =item *
 
@@ -634,13 +607,11 @@ B<set_scale_intervals> and B<modal_map> for details.
 
 =item *
 
-I<keep_state> - configures whether state is maintained through
-different calls to the various C<*_map> methods. On by default, which
-will require the use of the corresponding C<*_map_reset> methods when a
-phrase is complete. There are two possible workflows; with state
-enabled, multiple calls can be made to the mapping function, which suits
-B<modal_map> and the need to handle individual exceptions should a pitch
-produce an undefined conversion:
+I<keep_state> - configures whether state is maintained through different
+calls to the various C<*_map> methods. On by default, which requires the
+use of the corresponding C<*_map_reset> method when a phrase is
+complete. There are two possible workflows; with state enabled, multiple
+calls can be made to the mapping function, which suits B<modal_map>:
 
   my $mc_state = Music::Canon->new;
   for my $e (@input) {
@@ -651,11 +622,13 @@ produce an undefined conversion:
     }
     push @output, $result;
   }
+  @output = reverse @output if $mc->get_retrograde;
   $mc_state->modal_map_reset;
 
 The other workflow is to disable state, and pass entire phrases for
-conversion in one go. This better suits B<exact_map>, which unlike the
-modal transformation will not have pitches it cannot convert:
+conversion in one call. This better suits B<exact_map>, which unlike the
+modal transformation will not have pitches it cannot convert, and thus
+will not need to handle individual note exceptions:
 
   my $mc_no_state = Music::Canon->new(keep_state => 0);
   my @output = $mc_no_state->exact_map(\@input);
@@ -663,13 +636,19 @@ modal transformation will not have pitches it cannot convert:
 =item *
 
 I<non_octave_scales> - configures whether scales should be bounded at an
-octave (12 semitones) or not. The default is to complete interval sets
-that sum up to less than 12 to include an additional element such that
-the sum of the intervals is 12. Interval sets greater than 12 will cause
-an exception to be thrown.
+octave (12 semitones) or not. The default is to pad interval sets that
+sum up to less than 12 to include an additional element such that the
+sum of the intervals is 12. Interval sets greater than 12 will cause an
+exception to be thrown.
 
 Enable this option only if dealing with a maqam or similar scale that is
-not bounded by the Western notion of octave.
+not bounded by the Western notion of octave. For example, the whole tone
+scale (which is really just an expensive way to do an B<exact_map>):
+
+  my $mc = Music::Canon->new( non_octave_scales => 1 );
+  # or Forte Number '6-35'
+  $mc->set_scale_intervals('input',  [2,2,2,2,2] );
+  $mc->set_scale_intervals('output', [2,2,2,2,2] );
 
 =item *
 
@@ -714,7 +693,8 @@ method calls.
 =item B<set_retrograde> I<boolean>
 
 Sets the retrograde boolean (on by default). If set, phrases from the
-C<*_map> routines will be reversed.
+C<*_map> routines will be reversed. Meaningless if C<*_map> calls are
+being made note-by-note (see the I<keep_state> documentation).
 
 Returns the L<Music::Canon> object, so can be chained with other
 method calls.
@@ -722,7 +702,7 @@ method calls.
 =item B<set_scale_intervals> I<layer>, I<asc>, [I<dsc>]
 
 Sets the scale intervals for the indicated I<layer> (C<input> or
-C<output>). The I<asc> (and optional I<dsc>) can be a number of
+C<output>). The I<asc> (and optional I<dsc>) can be one of several
 different things:
 
   $mc->set_scale_intervals('input', 'minor');  # Music::Scales
@@ -734,12 +714,12 @@ If the I<dsc> is undefined, the corresponding I<asc> intervals will be
 used, except for L<Music::Scales>, for which the descending intervals
 associated with the ascending scale will be used.
 
-NOTE that the descending intervals must be ordered from the lowest pitch
-up. That is, melodic minor can be stated manually via:
+Note that the descending intervals must be ordered from the highest
+pitch down. That is, melodic minor can be stated manually via:
 
   $mc->set_scale_intervals( 'output',
-    [2,1,2,2,2,2],  # asc - c d ees f g a   b
-    [2,1,2,2,1,2]   # dsc - c d ees f g aes bes
+    [2,1,2,2,2,2],  # ascending  - c d ees f g a b
+    [2,2,1,2,2,1]   # descending - c bes aes g f ees d
   );
 
 Though this particular case would be much more easily stated via
@@ -769,9 +749,9 @@ method calls.
 
 "The Technique of Canon" by Hugo Norden
 
-"Counterpointer" by Ars Nova (training software).
+"Counterpointer" by Ars Nova (counterpoint instruction software).
 
-http://en.wikipedia.org/wiki/Forte_number
+L<http://en.wikipedia.org/wiki/Forte_number>
 
 L<Music::AtonalUtil>, L<Music::LilyPondUtil>, L<Music::Scales>,
 L<Music::Tension>
