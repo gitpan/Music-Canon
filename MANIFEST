@@ -2,6 +2,7 @@ LICENSE
 MANIFEST
 Makefile.PL
 README
+eg/brutecanon
 lib/Music/Canon.pm
 t/Music-Canon.t
 t/pod.t

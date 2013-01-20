@@ -61,6 +61,14 @@ $deeply->(
   'minor intervals check output'
 );
 
+# and adjusting only dsc intervals
+$mc->set_scale_intervals( 'output', undef, [qw/2 2 2 2 2 2/] );
+$deeply->(
+  [ $mc->get_scale_intervals('output') ],
+  [ [qw(2 1 2 2 1 2 2)], [qw(2 2 2 2 2 2)] ],
+  'custom dsc intervals check'
+);
+
 ########################################################################
 #
 # Exact Mappings
@@ -278,4 +286,4 @@ $deeply->(
 
 # TODO remote keys that have no overlaps, like say C Major to Db Major?
 
-plan tests => 41 + @major_to_major_undefined + @mm_to_mm_undefined;
+plan tests => 42 + @major_to_major_undefined + @mm_to_mm_undefined;

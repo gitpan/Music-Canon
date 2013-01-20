@@ -1,6 +1,8 @@
 # -*- Perl -*-
 #
-# routines for musical canon construction
+# Routines for musical canon construction. See also C<canonical> of
+# the L<App::MusicTools> module for a command line tool interface to
+# this code.
 
 package Music::Canon;
 
@@ -16,7 +18,7 @@ use Music::LilyPondUtil ();    # transpose convenience
 use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
 
-our $VERSION = '0.20';
+our $VERSION = '0.21';
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
@@ -268,6 +270,8 @@ sub new {
   bless $self, $class;
 
   eval {
+    # XXX there is no way to set the descending mode via this interface,
+    # think about how to do that here.
     if ( exists $param{input} ) {
       $self->set_scale_intervals( 'input', $param{input} );
     }
@@ -324,43 +328,49 @@ sub set_scale_intervals {
   if ( !defined $layer or ( $layer ne 'input' and $layer ne 'output' ) ) {
     croak "unsupported layer (must be 'input' or 'output')\n";
   }
-
-  # reset anything extant as some methods push
-  $self->{$layer}->{1}  = [];
-  $self->{$layer}->{-1} = [];
+  if ( !defined $asc and !defined $dsc ) {
+    croak "must define one of asc or dsc or both\n";
+  }
 
   my $is_scale = 0;
-  if ( ref $asc eq 'ARRAY' ) {
-    # Assume arbitrary list of intervals as integers if array ref
-    for my $n (@$asc) {
-      croak "ascending intervals must be integers\n"
-        unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
-    }
-    $self->{$layer}->{1} = $asc;
+  if ( defined $asc ) {
 
-  } elsif ( $asc =~ m/($FORTE_NUMBER_RE)/ ) {
-    # derive scale intervals from pitches of the named Forte Number
-    my $pset = $self->{_atu}->forte2pcs($1);
-    croak "no such Forte Number" unless defined $pset;
-
-    $self->{$layer}->{1} = $self->{_atu}->pcs2intervals($pset);
-
-  } else {
-    # derive intervals via scale name via third-party module
-    croak "ascending scale unknown to Music::Scales\n" unless is_scale($asc);
-    my @asc_nums = get_scale_nums($asc);
-    my @dsc_nums;
-    @dsc_nums = get_scale_nums( $asc, 1 ) unless defined $dsc;
-
-    for my $i ( 1 .. $#asc_nums ) {
-      push @{ $self->{$layer}->{1} }, $asc_nums[$i] - $asc_nums[ $i - 1 ];
-    }
-    if (@dsc_nums) {
-      for my $i ( 1 .. $#dsc_nums ) {
-        push @{ $self->{$layer}->{-1} }, $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
+    if ( ref $asc eq 'ARRAY' ) {
+      # Assume arbitrary list of intervals as integers if array ref
+      for my $n (@$asc) {
+        croak "ascending intervals must be integers\n"
+          unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
       }
+      $self->{$layer}->{1} = $asc;
+
+    } elsif ( $asc =~ m/($FORTE_NUMBER_RE)/ ) {
+      # derive scale intervals from pitches of the named Forte Number
+      my $pset = $self->{_atu}->forte2pcs($1);
+      croak "no such Forte Number" unless defined $pset;
+
+      $self->{$layer}->{1} = $self->{_atu}->pcs2intervals($pset);
+
+    } else {
+      # derive intervals via scale name via third-party module
+      croak "ascending scale unknown to Music::Scales\n"
+        unless is_scale($asc);
+      my @asc_nums = get_scale_nums($asc);
+      my @dsc_nums;
+      @dsc_nums = get_scale_nums( $asc, 1 ) unless defined $dsc;
+
+      $self->{$layer}->{1} = [];
+      for my $i ( 1 .. $#asc_nums ) {
+        push @{ $self->{$layer}->{1} }, $asc_nums[$i] - $asc_nums[ $i - 1 ];
+      }
+      if (@dsc_nums) {
+        $self->{$layer}->{-1} = [];
+        for my $i ( 1 .. $#dsc_nums ) {
+          push @{ $self->{$layer}->{-1} },
+            $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
+        }
+      }
+      $is_scale = 1;
     }
-    $is_scale = 1;
   }
 
   if ( !defined $dsc ) {
@@ -390,6 +400,7 @@ sub set_scale_intervals {
         unless is_scale($dsc);
       my @dsc_nums = get_scale_nums( $dsc, 1 );
 
+      $self->{$layer}->{-1} = [];
       for my $i ( 1 .. $#dsc_nums ) {
         push @{ $self->{$layer}->{-1} }, $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
       }
@@ -431,7 +442,7 @@ Music::Canon - routines for musical canon construction
 
 =head1 SYNOPSIS
 
-  use Music::Canon;
+  use Music::Canon ();
   my $mc = Music::Canon->new;
 
   # options affecting all the *_map routines
@@ -453,7 +464,9 @@ Music::Canon - routines for musical canon construction
   $mc->set_scale_intervals( 'input',  'minor'  );
   $mc->set_scale_intervals( 'output', 'dorian' );
 
-And more!
+See also C<canonical> of the L<App::MusicTools> module for a command
+line tool interface to this code, and the C<eg/> and C<t/> directories
+of this distribution for more example code.
 
 =head1 DESCRIPTION
 
@@ -712,7 +725,11 @@ different things:
 
 If the I<dsc> is undefined, the corresponding I<asc> intervals will be
 used, except for L<Music::Scales>, for which the descending intervals
-associated with the ascending scale will be used.
+associated with the ascending scale will be used. If I<asc> is
+undefined, I<dsc> must then be set to something. This allows the
+descending intervals alone to be adjusted.
+
+  $mc->set_scale_intervals('output', undef, 'aeolian');
 
 Note that the descending intervals must be ordered from the highest
 pitch down. That is, melodic minor can be stated manually via:
@@ -756,8 +773,8 @@ L<http://en.wikipedia.org/wiki/Forte_number>
 L<Music::AtonalUtil>, L<Music::LilyPondUtil>, L<Music::Scales>,
 L<Music::Tension>
 
-The C<scalemogrifier> utility of L<App::MusicTools> may also be
-of interest.
+The C<canonical> and C<scalemogrifier> utilities of L<App::MusicTools>
+may also be of interest.
 
 =head1 AUTHOR
 
