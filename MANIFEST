@@ -3,7 +3,10 @@ MANIFEST
 Makefile.PL
 README
 eg/brutecanon
+eg/conversion-charts
 lib/Music/Canon.pm
 t/Music-Canon.t
+t/modal-map.t
 t/pod.t
-META.yml                                 Module meta-data (added by MakeMaker)
+META.yml                                 Module YAML meta-data (added by MakeMaker)
+META.json                                Module JSON meta-data (added by MakeMaker)
