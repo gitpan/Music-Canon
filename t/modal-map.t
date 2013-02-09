@@ -25,6 +25,8 @@ my $mc = Music::Canon->new;
 # These numbers worked out via a chart computed manually from -15 to 20.
 # (the page width of my notebook)
 
+# these all start on 0 and do not change the transpose so do not need to
+# call reset_modal_pitches
 $deeply->(
   [ $mc->modal_map(qw/0 0 2 2 4 5 7 9 11 12 14 16 17 19/) ],
   [qw/-19 -17 -15 -13 -12 -10 -8 -7 -5 -3 -1 -1 0 0/],
@@ -63,8 +65,26 @@ for my $i (@major_to_major_undefined) {
   # should cause an exception
 }
 
-# TODO yankee doodle here, or a portion of it that goes below and above
-# the linking tonic, so can test asc vs. dsc above and below...
+# Real Music(TM) test - yankee doodle fragment that goes above and below
+# the link on the tonic (69 or a'). Need resets as switching to A-major
+# to A-major conversions.
+$mc->modal_map_reset;
+$mc->set_modal_pitches(69);
+$deeply->( [ $mc->get_modal_pitches ], [ 69, undef ], 'get_modal_pitches' );
+
+# expect output linking pitch to be set by this transpose (alternative
+# would be set_modal_pitches(69,69+12))
+$mc->set_transpose(12);
+is( $mc->get_transpose, 12, 'check transpose' );
+
+$deeply->(
+  [ $mc->modal_map(qw/64 69 69 71 73 74 73 71 69 68 64 66 68 69 69/) ],
+  [qw/81 81 83 85 86 83 81 80 78 76 78 80 81 81 86/],
+  'yankee doodle'
+);
+
+$mc->set_modal_pitches( 81, 69 );
+$deeply->( [ $mc->get_modal_pitches ], [ 81, 69 ], 'get_modal_pitches' );
 
 ########################################################################
 #
@@ -169,13 +189,10 @@ $deeply->(
 # octave with non-octave bounding (not that that octave has much to do
 # with the algo, perhaps mostly to see what results are produced)
 
-# TODO also transpose at various points (octave, 3rd for major/major
-# where everything lines up).
-
 # TODO non-contrary motion tests (don't expect any problems but still)
 
 # TODO non-zero starting pitch? (also with transpose?)
 
 # TODO remote keys that have no overlaps, like say C Major to Db Major?
 
-plan tests => 16 + @major_to_major_undefined + @mm_to_mm_undefined;
+plan tests => 20 + @major_to_major_undefined + @mm_to_mm_undefined;

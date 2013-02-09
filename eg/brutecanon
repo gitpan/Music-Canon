@@ -110,6 +110,7 @@ sub map_it {
   }
   @new_phrase = reverse @new_phrase if $canon->get_retrograde;
   $canon->modal_map_reset;
+  $canon->reset_modal_pitches;
 
   return @new_phrase;
 }
