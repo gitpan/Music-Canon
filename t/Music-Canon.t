@@ -7,7 +7,6 @@ use strict;
 use warnings;
 
 use Test::More;    # plan is down at bottom
-use Test::Exception;
 
 eval 'use Test::Differences';    # display convenience
 my $deeply = $@ ? \&is_deeply : \&eq_or_diff;

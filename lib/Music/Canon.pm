@@ -18,7 +18,7 @@ use Music::LilyPondUtil ();    # transpose convenience
 use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
 
-our $VERSION = '0.4';
+our $VERSION = '0.50';
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
@@ -60,7 +60,10 @@ sub exact_map {
           $trans =
             $self->{_lyu}->notes2pitches( $self->{_transpose} ) - $pitch;
         };
-        croak $@ if $@;
+        if ($@) {
+          chomp $@;
+          croak $@;
+        }
       } else {
         $trans = $self->{_transpose};
       }
@@ -104,7 +107,7 @@ sub get_retrograde { $_[0]->{_retrograde} }
 sub get_scale_intervals {
   my ( $self, $layer ) = @_;
   if ( !defined $layer or ( $layer ne 'input' and $layer ne 'output' ) ) {
-    croak "unsupported layer (must be 'input' or 'output')\n";
+    croak "unsupported layer (must be 'input' or 'output')";
   }
   # internally ASC, DSC scale intervals both up from tonic, but for
   # users DSC scales are done from tonic downwards
@@ -163,7 +166,10 @@ sub modal_map {
       eval {
         $trans = $self->{_lyu}->notes2pitches( $self->{_transpose} ) - $pitch;
       };
-      croak $@ if $@;
+      if ($@) {
+        chomp $@;
+        croak $@;
+      }
     } else {
       $trans = $self->{_transpose};
     }
@@ -199,12 +205,15 @@ sub modal_map {
       # (possibly transposed) pitch, plus chromatic leftovers (if any).
       my $running_total = 0;
       my $steps         = 0;
+      my $input_idx     = 0;
       while ( $running_total < $input_tonic_delta ) {
-        my $idx = $steps++ % @{ $self->{input}->{$input_motion} };
-        $idx = $#{ $self->{input}->{$input_motion} } - $idx if $is_dsc;
-        $running_total += $self->{input}->{$input_motion}->[$idx];
+        $input_idx = $steps++ % @{ $self->{input}->{$input_motion} };
+        $input_idx = $#{ $self->{input}->{$input_motion} } - $input_idx
+          if $is_dsc;
+        $running_total += $self->{input}->{$input_motion}->[$input_idx];
       }
-      my $chromatic_offset = $running_total - $input_tonic_delta;
+      my $last_input_interval = $self->{input}->{$input_motion}->[$input_idx];
+      my $chromatic_offset    = $running_total - $input_tonic_delta;
 
       # Contrary motion means not only the opposite scale intervals,
       # but the opposite direction through those intervals (in
@@ -228,8 +237,11 @@ sub modal_map {
         }
       }
 
-      if ($chromatic_offset) {
+      if ( $chromatic_offset != 0 ) {
         my $step_interval = $self->{output}->{$output_motion}->[$idx];
+        my $step_dir = $step_interval < 0 ? -1 : 1;
+        $step_interval = abs $step_interval;
+
         if ( $chromatic_offset >= $step_interval ) {
           # NOTE thought about doing a hook function here, but that
           # would require tricky code to integrate properly with both
@@ -237,9 +249,27 @@ sub modal_map {
           # blow up and let caller handle things. (Probably via note-by-
           # note calls into this routine, as otherwise who knows what
           # note the conversion blew up on.)
-          croak "undefined chromatic conversion at index $obj_index\n";
+          croak "undefined chromatic conversion at index $obj_index";
         } else {
-          $output_interval -= $chromatic_offset;
+          if ( $step_interval == 2 ) {
+            # only one possible chromatic fits
+            $output_interval -= $step_dir * $chromatic_offset;
+          } else {
+            # _chrome_weight is a troolean - either a literal chromatic
+            # going up or down if positive or negative, otherwise if 0
+            # try to figure out something proportional to where the
+            # chromatic was between the diatonics of the input scale.
+            if ( $self->{_chrome_weight} > 0 ) {
+              $output_interval -= $step_dir * $chromatic_offset;
+            } elsif ( $self->{_chrome_weight} < 0 ) {
+              $output_interval +=
+                $step_dir * ( $chromatic_offset - $step_interval );
+            } else {
+              my $fraction = sprintf "%.0f",
+                $step_interval * $chromatic_offset / $last_input_interval;
+              $output_interval += $step_dir * ( $fraction - $step_interval );
+            }
+          }
         }
       }
 
@@ -287,11 +317,14 @@ sub new {
     ? $param{atu}
     : Music::AtonalUtil->new;
 
+  $self->{_chrome_weight} =
+    exists $param{chrome_weight} ? $param{chrome_weight} <=> 0 : 0;
+
   $self->{_contrary} = exists $param{contrary} ? $param{contrary} ? 1 : 0 : 1;
 
   $self->{_DEG_IN_SCALE} = int( $param{DEG_IN_SCALE} // $DEG_IN_SCALE );
   if ( $self->{_DEG_IN_SCALE} < 2 ) {
-    croak("degrees in scale must be greater than one");
+    croak "degrees in scale must be greater than one";
   }
 
   $self->{_lyu} =
@@ -326,7 +359,10 @@ sub new {
       $self->set_scale_intervals( 'output', 'major' );
     }
   };
-  croak $@ if $@;
+  if ($@) {
+    chomp $@;
+    croak $@;
+  }
 
   return $self;
 }
@@ -369,7 +405,10 @@ sub set_modal_pitches {
         $self->{_lyu}->notes2pitches($output_pitch);
     }
   };
-  croak $@ if $@;
+  if ($@) {
+    chomp $@;
+    croak $@;
+  }
 
   return $self;
 }
@@ -378,10 +417,10 @@ sub set_scale_intervals {
   my ( $self, $layer, $asc, $dsc ) = @_;
 
   if ( !defined $layer or ( $layer ne 'input' and $layer ne 'output' ) ) {
-    croak "unsupported layer (must be 'input' or 'output')\n";
+    croak "unsupported layer (must be 'input' or 'output')";
   }
   if ( !defined $asc and !defined $dsc ) {
-    croak "must define one of asc or dsc or both\n";
+    croak "must define one of asc or dsc or both";
   }
 
   my $is_scale = 0;
@@ -390,7 +429,7 @@ sub set_scale_intervals {
     if ( ref $asc eq 'ARRAY' ) {
       # Assume arbitrary list of intervals as integers if array ref
       for my $n (@$asc) {
-        croak "ascending intervals must be integers\n"
+        croak "ascending intervals must be integers"
           unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
       }
       $self->{$layer}->{1} = $asc;
@@ -404,7 +443,7 @@ sub set_scale_intervals {
 
     } else {
       # derive intervals via scale name via third-party module
-      croak "ascending scale unknown to Music::Scales\n"
+      croak "ascending scale unknown to Music::Scales"
         unless is_scale($asc);
       my @asc_nums = get_scale_nums($asc);
       my @dsc_nums;
@@ -434,7 +473,7 @@ sub set_scale_intervals {
   } else {
     if ( ref $dsc eq 'ARRAY' ) {
       for my $n (@$dsc) {
-        croak "descending intervals must be integers\n"
+        croak "descending intervals must be integers"
           unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
       }
       $self->{$layer}->{-1} = [ reverse @$dsc ];
@@ -447,7 +486,7 @@ sub set_scale_intervals {
       $self->{$layer}->{-1} = $self->{_atu}->pcs2intervals($pset);
 
     } else {
-      croak "descending scale unknown to Music::Scales\n"
+      croak "descending scale unknown to Music::Scales"
         unless is_scale($dsc);
       my @dsc_nums = get_scale_nums( $dsc, 1 );
 
@@ -467,7 +506,7 @@ sub set_scale_intervals {
       if ( $sum < $self->{_DEG_IN_SCALE} ) {
         push @$ref, $self->{_DEG_IN_SCALE} - $sum;
       } elsif ( $sum > $self->{_DEG_IN_SCALE} ) {
-        croak "non-octave scales require non_octave_scales param\n";
+        croak "non-octave scales require non_octave_scales param";
       }
     }
   }
@@ -503,7 +542,8 @@ Music::Canon - routines for musical canon construction
   my @new_phrase = $mc->exact_map(qw/0 7 4 0 -1 0/);
   $mc->exact_map_reset;
 
-  # trickier is the so-called modal mapping - default is Major to Major
+  # trickier is the so-called modal mapping;
+  # default is Major to Major
   @new_phrase = $mc->modal_map(qw/0 7 4 0 -1 0/);
   $mc->modal_map_reset;
 
@@ -667,6 +707,28 @@ converted. The C<eg/conversion-charts> file of this module's distribution
 contains more such charts, as also can be generated by the
 C<eg/brutecanon> utility.
 
+How to map non-diatonic notes is another concern; the above chart shows
+two C<x> for notes that cannot be converted. Depending on the mapping,
+there might be zero, one, or several possible choices for a given
+chromatic. Consider C<c#> of C Major to various entry points of the
+sakura scale C<G# A# B D# E>:
+
+    C Major    | C  | c# | D  | 
+  ------------------------------------------------------------
+  Sakura @ G#  | G# | a  | A# |  - one choice
+  Sakura @ A#  | A# | x  | B  |  - throw exception
+  Sakura @ B   | B  | ?  | D# |  - (c, c#, d)
+
+The I<chrome_weight> parameter to B<new> controls the multiple choice
+situation. The default setting of C<0> results in C<c#>, as that value
+is halfway between C<B> and C<D>, just as the input scale chromatic is
+halfway between C<C> and C<D>. Otherwise, with a negative
+I<chrome_weight>, C<c> is favored, or for a positive I<chrome_weight>,
+C<d>. Test cases are advised to confirm that the resulting chromatics
+are appropriate, though this should only be necessary if the output
+scale has intervals greater than two (e.g. hungarian minor, or any of
+the pentatonic scales, etc).
+
 B<modal_map> is affected by various settings, notably B<set_contrary>,
 B<set_modal_pitches>, B<set_retrograde>, B<set_scale_intervals>, and
 B<set_transpose>.
@@ -691,6 +753,19 @@ Constructor. Accepts a number of options, the useful or safe of which
 are listed here.
 
 =over 4
+
+=item *
+
+I<chrome_weight> - sets the B<chrome_weight> troolean. Zero by default.
+
+I<chrome_weight> controls how chromatics between output intervals
+greater than two semitones are handled in B<modal_map>; if this
+parameter is negative, the literal chromatic step from the input scale
+will be used from the previous pitch (bottom up), if positive the
+literal chromatic step will be applied in the other direction (top
+down), and if zero (the default) a value proportionally closest to where
+the chromatic is in the input interval will be calculated. See
+documentation for B<modal_map> for a longer example.
 
 =item *
 

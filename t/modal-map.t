@@ -69,13 +69,12 @@ for my $i (@major_to_major_undefined) {
 # the link on the tonic (69 or a'). Need resets as switching to A-major
 # to A-major conversions.
 $mc->modal_map_reset;
-$mc->set_modal_pitches(69);
+isa_ok( $mc->set_modal_pitches(69), 'Music::Canon' );
 $deeply->( [ $mc->get_modal_pitches ], [ 69, undef ], 'get_modal_pitches' );
 
 # expect output linking pitch to be set by this transpose (alternative
 # would be set_modal_pitches(69,69+12))
 $mc->set_transpose(12);
-is( $mc->get_transpose, 12, 'check transpose' );
 
 $deeply->(
   [ $mc->modal_map(qw/64 69 69 71 73 74 73 71 69 68 64 66 68 69 69/) ],
@@ -85,6 +84,10 @@ $deeply->(
 
 $mc->set_modal_pitches( 81, 69 );
 $deeply->( [ $mc->get_modal_pitches ], [ 81, 69 ], 'get_modal_pitches' );
+
+isa_ok( $mc->reset_modal_pitches, 'Music::Canon' );
+$deeply->( [ $mc->get_modal_pitches ], [ undef, undef ],
+  'get_modal_pitches' );
 
 ########################################################################
 #
@@ -143,16 +146,29 @@ $mc->modal_map_reset;
 $deeply->( [ $mc->modal_map(qw/80 79/) ], [qw/65 64/], 'yay bugs' );
 $mc->modal_map_reset;
 
-# TODO work out what output expected to be by hand
-#$deeply->(
-#  [ $mc->modal_map(
-#      qw/75 71 72 74 75 74 75 77 79 80 79 84 83 84 80 79 77 80 79 77 75 74 75 77 79 77 79 80 77 79 77 75 74 75 74 72 71 72 74 75 74 75 77 79 77 79 80 77 84 82 80 79 80 79 77 75 77 75 74 72 74 75 71 72/
-#    )
-#  ],
-#  [qw/notes/],
-#  'modal map mm mixed directions'
-#);
-#$mc->modal_map_reset;
+# these should not change after the various calls above...
+$deeply->( [ $mc->get_modal_pitches ], [ 72, 72 ], 'lookup modal pitches' );
+$deeply->(
+  [ $mc->get_scale_intervals('input') ],
+  [ [qw/2 1 2 2 2 2 1/], [qw/2 2 1 2 2 1 2/] ],
+  'melodic minor scale intervals'
+);
+
+# Comparison with numbers worked out by hand in notebook using ASC to
+# DSC and DSC to ASC as appropriate for the local motion under contrary
+# output motion.
+$mc->set_retrograde(0);
+$deeply->(
+  [ $mc->modal_map(
+      qw/75 71 72 74 75 74 75 77 79 80 79 84 83 84 80 79 77 80 79 77 75 74 75 77 79 77 79 80 77 79 77 75 74 75 74 72 71 72 74 75 74 75 77 79 77 79 80 77 84 82 80 79 80 79 77 75 77 75 74 72 74 75 71 72/
+    )
+  ],
+  [ qw/68 73 72 70 68 71 68 67 65 64 65 60 61 60 63 65 67 64 65 67 69 71 68 67 65 67 65 64 67 65 67 69 71 68 71 72 73 72 70 68 71 68 67 65 67 65 64 67 60 62 63 65 64 65 67 69 67 69 71 72 70 68 73 72/
+  ],
+  'modal map mm mixed directions'
+);
+$mc->modal_map_reset;
+$mc->set_retrograde(1);
 
 for my $i (@mm_to_mm_undefined) {
   dies_ok(
@@ -195,4 +211,69 @@ $deeply->(
 
 # TODO remote keys that have no overlaps, like say C Major to Db Major?
 
-plan tests => 20 + @major_to_major_undefined + @mm_to_mm_undefined;
+########################################################################
+#
+# chrome handling, also tricky, but only if the magnitude of an interval
+# is greater than two (hungarian minor or for six-or-fewer note scales).
+
+# C cis D -> Bes x B as there's no space between output pitch numbers 10
+# and 11, regardless of how the chromes are handled.
+sub impossible {
+  $mc->set_modal_pitches( 0, 10 );
+  $mc->set_scale_intervals( 'output', [ 1, 4, 1, 4 ] );
+  dies_ok(
+    sub {
+      my $surprise = $mc->modal_map(1);
+      diag "error: instead of an exception got: $surprise for 1\n";
+    },
+    'undefined chromatic conversion'
+  );
+}
+
+# interval of 2 and chrome of 1 means there is only one option for the chrome
+sub always_one {
+  $mc->set_modal_pitches( 0, 8 );
+  $mc->set_scale_intervals( 'output', [ 2, 1, 4, 1 ] );
+  $deeply->( [ $mc->modal_map(1) ], [9], 'chrome +1' );
+  $mc->modal_map_reset;
+}
+
+sub middle {
+  $mc->set_modal_pitches( 48, 59 );
+  $mc->set_scale_intervals( 'output', [ 4,1,4,2 ] );
+  $deeply->( [$mc->modal_map(49)], [61], 'somewhere in middle' );
+  $mc->modal_map_reset;
+}
+
+$mc = Music::Canon->new( contrary => 0, retrograde => 0 );
+impossible();
+always_one();
+middle();
+
+$mc = Music::Canon->new( chrome_weight => 0, contrary => 0, retrograde => 0 );
+impossible();
+always_one();
+middle();
+
+$mc = Music::Canon->new( chrome_weight => -1, contrary => 0, retrograde => 0 );
+impossible();
+always_one();
+  $mc->set_modal_pitches( 48, 59 );
+  $mc->set_scale_intervals( 'output', [ 4,1,4,2 ] );
+  $deeply->( [$mc->modal_map(49)], [60], 'negative literal' );
+  $mc->modal_map_reset;
+
+$mc = Music::Canon->new( chrome_weight => 1, contrary => 0, retrograde => 0 );
+impossible();
+always_one();
+  $mc->set_modal_pitches( 48, 59 );
+  $mc->set_scale_intervals( 'output', [ 4,1,4,2 ] );
+  $deeply->( [$mc->modal_map(49)], [62], 'positive literal' );
+  $mc->modal_map_reset;
+
+# TODO test and document negative interval steps (for exotic "scales"
+# comprised of for example the intervals [-5,7]).
+
+########################################################################
+
+plan tests => 37 + @major_to_major_undefined + @mm_to_mm_undefined;
