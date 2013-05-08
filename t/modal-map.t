@@ -240,8 +240,8 @@ sub always_one {
 
 sub middle {
   $mc->set_modal_pitches( 48, 59 );
-  $mc->set_scale_intervals( 'output', [ 4,1,4,2 ] );
-  $deeply->( [$mc->modal_map(49)], [61], 'somewhere in middle' );
+  $mc->set_scale_intervals( 'output', [ 4, 1, 4, 2 ] );
+  $deeply->( [ $mc->modal_map(49) ], [61], 'somewhere in middle' );
   $mc->modal_map_reset;
 }
 
@@ -255,25 +255,31 @@ impossible();
 always_one();
 middle();
 
-$mc = Music::Canon->new( chrome_weight => -1, contrary => 0, retrograde => 0 );
+$mc =
+  Music::Canon->new( chrome_weight => -1, contrary => 0, retrograde => 0 );
 impossible();
 always_one();
-  $mc->set_modal_pitches( 48, 59 );
-  $mc->set_scale_intervals( 'output', [ 4,1,4,2 ] );
-  $deeply->( [$mc->modal_map(49)], [60], 'negative literal' );
-  $mc->modal_map_reset;
+$mc->set_modal_pitches( 48, 59 );
+$mc->set_scale_intervals( 'output', [ 4, 1, 4, 2 ] );
+$deeply->( [ $mc->modal_map(49) ], [60], 'negative literal' );
+$mc->modal_map_reset;
 
 $mc = Music::Canon->new( chrome_weight => 1, contrary => 0, retrograde => 0 );
 impossible();
 always_one();
-  $mc->set_modal_pitches( 48, 59 );
-  $mc->set_scale_intervals( 'output', [ 4,1,4,2 ] );
-  $deeply->( [$mc->modal_map(49)], [62], 'positive literal' );
-  $mc->modal_map_reset;
+$mc->set_modal_pitches( 48, 59 );
+$mc->set_scale_intervals( 'output', [ 4, 1, 4, 2 ] );
+$deeply->( [ $mc->modal_map(49) ], [62], 'positive literal' );
+$mc->modal_map_reset;
+
+# and back to the default
+isa_ok( $mc->set_modal_chrome(0), 'Music::Canon' );
+is( $mc->get_modal_chrome, 0, 'check chrome weighting' );
+middle();
 
 # TODO test and document negative interval steps (for exotic "scales"
 # comprised of for example the intervals [-5,7]).
 
 ########################################################################
 
-plan tests => 37 + @major_to_major_undefined + @mm_to_mm_undefined;
+plan tests => 40 + @major_to_major_undefined + @mm_to_mm_undefined;

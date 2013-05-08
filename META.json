@@ -34,7 +34,7 @@
          "requires" : {
             "Carp" : "0",
             "List::Util" : "0",
-            "Music::AtonalUtil" : "0.7",
+            "Music::AtonalUtil" : "1",
             "Music::LilyPondUtil" : "0.43",
             "Music::Scales" : "0.07",
             "Test::Exception" : "0",
@@ -52,5 +52,5 @@
          "url" : "http://github.com/thrig/Music-Canon"
       }
    },
-   "version" : "0.50"
+   "version" : "0.52"
 }

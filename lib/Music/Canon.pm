@@ -18,7 +18,7 @@ use Music::LilyPondUtil ();    # transpose convenience
 use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
 
-our $VERSION = '0.50';
+our $VERSION = '0.52';
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
@@ -96,6 +96,11 @@ sub exact_map_reset {
 }
 
 sub get_contrary { $_[0]->{_contrary} }
+
+sub get_modal_chrome {
+  my ($self) = @_;
+  return $self->{_chrome_weight} // 0;
+}
 
 sub get_modal_pitches {
   my ($self) = @_;
@@ -386,6 +391,13 @@ sub set_retrograde {
   return $self;
 }
 
+sub set_modal_chrome {
+  my ( $self, $weight ) = @_;
+  $weight //= 0;
+  $self->{_chrome_weight} = $weight <=> 0;
+  return $self;
+}
+
 sub set_modal_pitches {
   my ( $self, $input_pitch, $output_pitch ) = @_;
 
@@ -574,7 +586,9 @@ search for suitable material.
 
 The methods of this module at present suit crab canon, as those lines
 are relatively easy to calculate. Other forms of canon would ideally
-require a counterpoint module, which has not yet been written.
+require a counterpoint module, which has not yet been written. The
+B<modal_map> method also suits the calculation of new voices of a fugue,
+for example converting the subject to the dominant.
 
 Knowledge of canon will doubtless help any user of this module; the
 L</"SEE ALSO"> section lists resources for learning these.
@@ -620,6 +634,10 @@ method calls.
 =item B<get_contrary>
 
 Returns the current contrary setting (boolean).
+
+=item B<get_modal_chrome>
+
+Returns current B<modal_map> chrome weighting (troolean).
 
 =item B<get_modal_pitches>
 
@@ -853,6 +871,12 @@ input phrase.
 
 Returns the L<Music::Canon> object, so can be chained with other
 method calls.
+
+=item B<set_modal_chrome> I<weight>
+
+Sets the B<modal_map> chrome weighting. Troolean: 0 (proportional),
+negative (literal from previous note up), or positive (literal from
+current note down).
 
 =item B<set_modal_pitches> I<input_tonic>, [ I<output_tonic> ]
 
