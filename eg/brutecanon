@@ -102,10 +102,14 @@ sub map_it {
   my @new_phrase;
   for my $n (@$scale) {
     my $result;
-    eval { $result = $canon->modal_map($n) };
-    if ( $@ and $@ =~ m/undefined chromatic conversion/ ) {
-      $result = undef;
-    }
+    try { $result = $canon->modal_map($n) }
+    catch {
+      if (m/undefined chromatic conversion/) {
+        $result = undef;
+      } else {
+        die $_;
+      }
+    };
     push @new_phrase, $result;
   }
   @new_phrase = reverse @new_phrase if $canon->get_retrograde;

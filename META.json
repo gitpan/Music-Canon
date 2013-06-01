@@ -38,7 +38,8 @@
             "Music::LilyPondUtil" : "0.43",
             "Music::Scales" : "0.07",
             "Test::Exception" : "0",
-            "Test::More" : "0"
+            "Test::More" : "0",
+            "Try::Tiny" : "0"
          }
       }
    },
@@ -52,5 +53,5 @@
          "url" : "http://github.com/thrig/Music-Canon"
       }
    },
-   "version" : "0.52"
+   "version" : "0.53"
 }

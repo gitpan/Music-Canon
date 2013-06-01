@@ -17,8 +17,9 @@ use Music::AtonalUtil   ();    # Forte Number to interval sets
 use Music::LilyPondUtil ();    # transpose convenience
 use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
+use Try::Tiny;
 
-our $VERSION = '0.52';
+our $VERSION = '0.53';
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
@@ -56,14 +57,13 @@ sub exact_map {
     if ( !defined $self->{_exact}->{prev_output} ) {
       my $trans;
       if ( !looks_like_number( $self->{_transpose} ) ) {
-        eval {
+        try {
           $trans =
             $self->{_lyu}->notes2pitches( $self->{_transpose} ) - $pitch;
-        };
-        if ($@) {
-          chomp $@;
-          croak $@;
         }
+        catch {
+          croak $_;
+        };
       } else {
         $trans = $self->{_transpose};
       }
@@ -168,13 +168,12 @@ sub modal_map {
     # input tonic and then MIDI 72 for the output tonic.
     my $trans = 0;
     if ( !looks_like_number( $self->{_transpose} ) ) {
-      eval {
+      try {
         $trans = $self->{_lyu}->notes2pitches( $self->{_transpose} ) - $pitch;
-      };
-      if ($@) {
-        chomp $@;
-        croak $@;
       }
+      catch {
+        croak $_;
+      };
     } else {
       $trans = $self->{_transpose};
     }
@@ -346,7 +345,7 @@ sub new {
 
   bless $self, $class;
 
-  eval {
+  try {
     # XXX there is no way to set the descending mode via this interface,
     # think about how to do that here.
     if ( exists $param{input} ) {
@@ -363,11 +362,10 @@ sub new {
     if ( !exists $self->{output} ) {
       $self->set_scale_intervals( 'output', 'major' );
     }
-  };
-  if ($@) {
-    chomp $@;
-    croak $@;
   }
+  catch {
+    croak $_;
+  };
 
   return $self;
 }
@@ -401,7 +399,7 @@ sub set_modal_chrome {
 sub set_modal_pitches {
   my ( $self, $input_pitch, $output_pitch ) = @_;
 
-  eval {
+  try {
     if ( defined $input_pitch ) {
       $self->{_modal}->{input_tonic} =
         $self->{_lyu}->notes2pitches($input_pitch);
@@ -416,11 +414,10 @@ sub set_modal_pitches {
       $self->{_modal}->{output_tonic} =
         $self->{_lyu}->notes2pitches($output_pitch);
     }
-  };
-  if ($@) {
-    chomp $@;
-    croak $@;
   }
+  catch {
+    croak $_;
+  };
 
   return $self;
 }
@@ -803,13 +800,19 @@ use of the corresponding C<*_map_reset> method when a phrase is
 complete. There are two possible workflows; with state enabled, multiple
 calls can be made to the mapping function, which suits B<modal_map>:
 
+  use Try::Tiny;
+
   my $mc_state = Music::Canon->new;
   for my $e (@input) {
     my $result;
-    eval { $result = $mc_state->modal_map($e) };
-    if ($@ and $@ =~ m/undefined chromatic conversion/) {
-      $result = 'r';   # make it a lilypond rest
-    }
+    try { $result = $mc_state->modal_map($e) }
+    catch {
+      if (m/undefined chromatic conversion/) {
+        $result = 'r';   # make it a lilypond rest
+      } else {
+        ...              # handle error as appropriate
+      }
+    };
     push @output, $result;
   }
   @output = reverse @output if $mc->get_retrograde;

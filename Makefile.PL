@@ -16,6 +16,7 @@ my %params = (
     'Music::Scales'       => 0.07,
     'Test::Exception'     => 0,
     'Test::More'          => 0,
+    'Try::Tiny'           => 0,
   },
   ( $] >= 5.005
     ? ( AUTHOR => 'Jeremy Mates <jmates@cpan.org>' )
