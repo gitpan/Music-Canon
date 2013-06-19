@@ -26,8 +26,9 @@ requires:
   Test::Exception: 0
   Test::More: 0
   Try::Tiny: 0
+  perl: 5.01
 resources:
   homepage: http://github.com/thrig/Music-Canon
   license: http://dev.perl.org/licenses/
   repository: http://github.com/thrig/Music-Canon
-version: 0.53
+version: 0.54

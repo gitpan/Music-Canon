@@ -19,7 +19,7 @@ use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
 use Try::Tiny;
 
-our $VERSION = '0.53';
+our $VERSION = '0.54';
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
