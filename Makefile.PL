@@ -13,7 +13,7 @@ my %params = (
   PREREQ_PM    => {
     Carp                  => 0,
     'List::Util'          => 0,
-    'Music::AtonalUtil'   => 1.00,
+    'Music::AtonalUtil'   => 1.07,
     'Music::LilyPondUtil' => 0.43,
     'Music::Scales'       => 0.07,
     'Test::Exception'     => 0,
@@ -44,4 +44,4 @@ if ( $ExtUtils::MakeMaker::VERSION ge '6.48' ) {
   $params{MIN_PERL_VERSION} = 5.010000;
 }
 
-WriteMakefile(%params);
+WriteMakefile( ( MM->can('signature_target') ? ( SIGN => 1 ) : () ), %params );

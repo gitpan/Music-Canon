@@ -19,13 +19,16 @@ use Music::Scales qw/get_scale_nums is_scale/;
 use Scalar::Util qw/blessed looks_like_number/;
 use Try::Tiny;
 
-our $VERSION = '0.54';
+our $VERSION = '1.00';
+
+# Array indices for ascending versus descending scales (as some minor scales
+# are different, depending)
+my $ASC = 0;
+my $DSC = 1;
 
 # NOTE a new() param, below, but I have not thought about what changing
 # it would actually do. Use the $self entry in all subsequent code.
 my $DEG_IN_SCALE = 12;
-
-my $FORTE_NUMBER_RE = qr/[3-9]-[zZ]?\d{1,2}/;
 
 ########################################################################
 #
@@ -114,9 +117,10 @@ sub get_scale_intervals {
   if ( !defined $layer or ( $layer ne 'input' and $layer ne 'output' ) ) {
     croak "unsupported layer (must be 'input' or 'output')";
   }
+  $layer .= '_mode';
   # internally ASC, DSC scale intervals both up from tonic, but for
   # users DSC scales are done from tonic downwards
-  return $self->{$layer}->{1}, [ reverse @{ $self->{$layer}->{-1} } ];
+  return $self->{$layer}[$ASC], [ reverse @{ $self->{$layer}[$DSC] } ];
 }
 
 sub get_transpose {
@@ -136,6 +140,9 @@ sub get_transpose {
 # may be handled by different scale intervals, if a melodic minor or
 # similar asymmetric interval set is involved. If this sounds tricky and
 # complicated, it is because it is.
+#
+# TODO rewrite and instead track previous pitch, previous position+chrome in
+# the scale, instead of always working things out from the tonics?
 sub modal_map {
   my $self = shift;
 
@@ -157,29 +164,6 @@ sub modal_map {
       next;
     }
 
-    # Interval sets are useless without being tied to some pitch, derive
-    # from input phrase if unset (the set_modal_pitches() method can
-    # customize these in advance if necessary)
-    $self->{_modal}->{input_tonic} = $pitch
-      unless defined $self->{_modal}->{input_tonic};
-
-    # Output tonic set based on transposed pitch, as might be mapping c'
-    # to c'' via transpose of 12 in which case want MIDI 60 for the
-    # input tonic and then MIDI 72 for the output tonic.
-    my $trans = 0;
-    if ( !looks_like_number( $self->{_transpose} ) ) {
-      try {
-        $trans = $self->{_lyu}->notes2pitches( $self->{_transpose} ) - $pitch;
-      }
-      catch {
-        croak $_;
-      };
-    } else {
-      $trans = $self->{_transpose};
-    }
-    $self->{_modal}->{output_tonic} = $self->{_modal}->{input_tonic} + $trans
-      unless defined $self->{_modal}->{output_tonic};
-
     my $new_pitch;
     if ( defined $self->{_modal}->{input_prev_pitch}
       and $self->{_modal}->{input_prev_pitch} == $pitch ) {
@@ -187,62 +171,124 @@ sub modal_map {
       $new_pitch = $self->{_modal}->{output_prev_pitch};
 
     } else {
-      # Figure out whether input should be figured on the ascending or
-      # descending scale intervals (descending intervals only if there
-      # is a previous pitch and if the delta from that previous pitch
-      # shows descending motion).
-      my $input_motion = 1;
-      if ( defined $self->{_modal}->{input_prev_pitch} ) {
-        my $pp_delta = $pitch - $self->{_modal}->{input_prev_pitch};
-        $input_motion = -1 if $pp_delta < 0;
+      # Determine whether input must be figured on the ascending or descending
+      # scale intervals; descending intervals only if there is a previous pitch
+      # and if the delta from that previous pitch shows descending motion,
+      # otherwise ascending. The scales are [[asc],[dsc]] AoA.
+      my $input_motion = $ASC;
+      $input_motion = $DSC
+        if defined $self->{_modal}->{input_prev_pitch}
+        and $pitch - $self->{_modal}->{input_prev_pitch} < 0;
+      my $output_motion = $self->{_contrary} ? !$input_motion : $input_motion;
+
+      # Interval sets are useless without being tied to some pitch, derive
+      # from input phrase if unset (the set_modal_pitches() method can
+      # customize these in advance if necessary)
+      $self->{_modal}->{input_tonic} = $pitch
+        unless defined $self->{_modal}->{input_tonic};
+
+      # NOTE output tonic is not longer set based on transposed pitch (as of
+      # v1.00); use set_modal_pitches() to specify as necessary. This change
+      # motivated by transpose not really working everywhere. Instead, output
+      # tonic by default same as input tonic (so the input and output modes
+      # share the same root pitch by default).
+      $self->{_modal}->{output_tonic} = $self->{_modal}->{input_tonic}
+        unless defined $self->{_modal}->{output_tonic};
+
+      # local copy of output scale in event transpostion forces a rotation of
+      # the intervals; this might be in a wacky state if this function is being
+      # called note-by-note so must setup each time :/
+      $self->{_modal}->{output_mode} = $self->{output_mode};
+
+      if ( !defined $self->{_modal}->{transpose} ) {
+        $self->{_modal}->{transpose} = 0;
+        # letter note, assume relative to the pitch, a "transpose to A" instead
+        # of "transpose by N"
+        if ( !looks_like_number( $self->{_transpose} ) ) {
+          try {
+            $self->{_modal}->{transpose} =
+              $self->{_lyu}->notes2pitches( $self->{_transpose} ) - $pitch;
+          }
+          catch {
+            croak $_;
+          };
+        } else {
+          $self->{_modal}->{transpose} = $self->{_transpose};
+        }
+
+        # Transpositions require rotation of the output mode to match where the
+        # starting pitch of the phrase lies in the output mode, as otherwise
+        # for c-minor to c-minor, transposing from C to E-flat, would for an
+        # input phrase of C->Bb->Ab get the C->Bb->Ab intervals instead of
+        # those for Eb->D->C. That is, the output would become E-flat minor by
+        # virtue of the transposition without the rotation done here.
+        #
+        # TODO need get/set for this, plus only-do-if-unset and might need to
+        # be done on the second note so get the direction from that?
+        #
+        # need also store rot, chrome in $self for future ref until reset
+        $self->{_modal}->{rotate_by}     = 0;
+        $self->{_modal}->{rotate_chrome} = 0;
+
+        if ( $self->{_modal}->{transpose} != 0 ) {
+          # TODO option to set what scale used, ASC vs DSC or arbitrary user-
+          # supplied...
+          ( $self->{_modal}->{rotate_by}, $self->{_modal}->{rotate_chrome} ) =
+            (
+            $self->steps( 0, $self->{_modal}->{transpose}, $self->{input_mode}->[$ASC] ) )
+            [ 0, 1 ];
+          # inverted due to how M::AU->rotate works
+          $self->{_modal}->{rotate_by} *= -1;
+
+          # more TODO
+          if ( $self->{_modal}->{rotate_chrome} != 0 ) {
+            die "transpose to chromatic pitch is as yet unsupported";
+          }
+        }
+
+        if ( $self->{_modal}->{rotate_by} != 0 ) {
+          $self->{_modal}->{output_mode}[$ASC] =
+            $self->{_atu}->rotate( $self->{_modal}->{rotate_by},
+            $self->{_modal}->{output_mode}[$ASC] );
+          $self->{_modal}->{output_mode}[$DSC] =
+            $self->{_atu}->rotate( $self->{_modal}->{rotate_by},
+            $self->{_modal}->{output_mode}[$DSC] );
+        }
       }
-      my $output_motion =
-        $self->{_contrary} ? $input_motion * -1 : $input_motion;
 
       # Magnitude of interval from tonic, and whether above or below the
       # tonic (as if below, must walk scale intervals backwards).
-      my $input_tonic_delta = $pitch - $self->{_modal}->{input_tonic};
-      my $is_dsc = $input_tonic_delta < 0 ? 1 : 0;
-      $input_tonic_delta = abs $input_tonic_delta;
-
-      # Determine the number of diatonic steps from the tonic to the
-      # (possibly transposed) pitch, plus chromatic leftovers (if any).
-      my $running_total = 0;
-      my $steps         = 0;
-      my $input_idx     = 0;
-      while ( $running_total < $input_tonic_delta ) {
-        $input_idx = $steps++ % @{ $self->{input}->{$input_motion} };
-        $input_idx = $#{ $self->{input}->{$input_motion} } - $input_idx
-          if $is_dsc;
-        $running_total += $self->{input}->{$input_motion}->[$input_idx];
-      }
-      my $last_input_interval = $self->{input}->{$input_motion}->[$input_idx];
-      my $chromatic_offset    = $running_total - $input_tonic_delta;
+      my ( $steps, $chromatic_offset, $is_dsc, $last_input_interval ) =
+        $self->steps( $self->{_modal}->{input_tonic},
+        $pitch, $self->{input_mode}->[$input_motion] );
 
       # Contrary motion means not only the opposite scale intervals,
       # but the opposite direction through those intervals (in
       # melodic minor, ascending motion in ascending intervals (C to
       # Eflat) corresponds to descending motion in descending
       # intervals (C to Aflat).
-      $is_dsc = $is_dsc ? 0 : 1 if $self->{_contrary};
+      $is_dsc = !$is_dsc if $self->{_contrary};
+
+      my $output_interval = 0;
 
       # Replay the same number of diatonic steps using the appropriate
       # output intervals and direction of interval iteration, plus
       # chromatic adjustments, if any.
-      my $output_interval = 0;
       my $idx;
       if ($steps) {
-        # steps is incremented past where we need to be, so back off by one
+        # TODO steps is incremented past where we need to be, so back off by
+        # one hmm but only if there are chromatics? in that case should be
+        # right on top of the new value... or okay since counting from 0?
         $steps--;
         for my $s ( 0 .. $steps ) {
-          $idx = $s % @{ $self->{output}->{$output_motion} };
-          $idx = $#{ $self->{output}->{$output_motion} } - $idx if $is_dsc;
-          $output_interval += $self->{output}->{$output_motion}->[$idx];
+          $idx = $s % @{ $self->{_modal}->{output_mode}[$output_motion] };
+          $idx = $#{ $self->{_modal}->{output_mode}[$output_motion] } - $idx if $is_dsc;
+          $output_interval += $self->{_modal}->{output_mode}[$output_motion][$idx];
         }
       }
 
       if ( $chromatic_offset != 0 ) {
-        my $step_interval = $self->{output}->{$output_motion}->[$idx];
+        my $step_interval = $self->{_modal}->{output_mode}[$output_motion][$idx];
         my $step_dir = $step_interval < 0 ? -1 : 1;
         $step_interval = abs $step_interval;
 
@@ -253,7 +299,7 @@ sub modal_map {
           # blow up and let caller handle things. (Probably via note-by-
           # note calls into this routine, as otherwise who knows what
           # note the conversion blew up on.)
-          croak "undefined chromatic conversion at index $obj_index";
+          croak "undefined chromatic conversion of $pitch at index $obj_index";
         } else {
           if ( $step_interval == 2 ) {
             # only one possible chromatic fits
@@ -266,8 +312,7 @@ sub modal_map {
             if ( $self->{_chrome_weight} > 0 ) {
               $output_interval -= $step_dir * $chromatic_offset;
             } elsif ( $self->{_chrome_weight} < 0 ) {
-              $output_interval +=
-                $step_dir * ( $chromatic_offset - $step_interval );
+              $output_interval += $step_dir * ( $chromatic_offset - $step_interval );
             } else {
               my $fraction = sprintf "%.0f",
                 $step_interval * $chromatic_offset / $last_input_interval;
@@ -278,7 +323,10 @@ sub modal_map {
       }
 
       $output_interval = int( $output_interval * -1 ) if $is_dsc;
-      $new_pitch = $self->{_modal}->{output_tonic} + $output_interval;
+      $new_pitch =
+        $self->{_modal}->{transpose} +
+        $self->{_modal}->{output_tonic} +
+        $output_interval;
     }
 
     push @new_phrase, $new_pitch;
@@ -431,6 +479,8 @@ sub set_scale_intervals {
   if ( !defined $asc and !defined $dsc ) {
     croak "must define one of asc or dsc or both";
   }
+  $layer .= "_mode";
+  my $FORTE_NUMBER_RE = $self->{_atu}->forte_number_re;
 
   my $is_scale = 0;
   if ( defined $asc ) {
@@ -441,14 +491,14 @@ sub set_scale_intervals {
         croak "ascending intervals must be integers"
           unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
       }
-      $self->{$layer}->{1} = $asc;
+      $self->{$layer}[$ASC] = $asc;
 
     } elsif ( $asc =~ m/($FORTE_NUMBER_RE)/ ) {
       # derive scale intervals from pitches of the named Forte Number
       my $pset = $self->{_atu}->forte2pcs($1);
       croak "no such Forte Number for ascending" unless defined $pset;
 
-      $self->{$layer}->{1} = $self->{_atu}->pcs2intervals($pset);
+      $self->{$layer}[$ASC] = $self->{_atu}->pcs2intervals($pset);
 
     } else {
       # derive intervals via scale name via third-party module
@@ -458,15 +508,14 @@ sub set_scale_intervals {
       my @dsc_nums;
       @dsc_nums = get_scale_nums( $asc, 1 ) unless defined $dsc;
 
-      $self->{$layer}->{1} = [];
+      $self->{$layer}[$ASC] = [];
       for my $i ( 1 .. $#asc_nums ) {
-        push @{ $self->{$layer}->{1} }, $asc_nums[$i] - $asc_nums[ $i - 1 ];
+        push @{ $self->{$layer}[$ASC] }, $asc_nums[$i] - $asc_nums[ $i - 1 ];
       }
       if (@dsc_nums) {
-        $self->{$layer}->{-1} = [];
+        $self->{$layer}[1] = [];
         for my $i ( 1 .. $#dsc_nums ) {
-          unshift @{ $self->{$layer}->{-1} },
-            $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
+          unshift @{ $self->{$layer}[$DSC] }, $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
         }
       }
       $is_scale = 1;
@@ -477,7 +526,7 @@ sub set_scale_intervals {
     # Assume descending equals ascending (true in most cases, except
     # melodic minor and similar), unless a scale was involved, as the
     # Music::Scales code should already have setup the descending bit.
-    $self->{$layer}->{-1} = $self->{$layer}->{1}
+    $self->{$layer}[$DSC] = $self->{$layer}[$ASC]
       unless $is_scale;
   } else {
     if ( ref $dsc eq 'ARRAY' ) {
@@ -485,24 +534,23 @@ sub set_scale_intervals {
         croak "descending intervals must be integers"
           unless looks_like_number $n and $n =~ m/^[+-]?\d+$/;
       }
-      $self->{$layer}->{-1} = [ reverse @$dsc ];
+      $self->{$layer}[$DSC] = [ reverse @$dsc ];
 
     } elsif ( $dsc =~ m/($FORTE_NUMBER_RE)/ ) {
       # derive scale intervals from pitches of the named Forte Number
       my $pset = $self->{_atu}->forte2pcs($1);
       croak "no such Forte Number for descending" unless defined $pset;
 
-      $self->{$layer}->{-1} = $self->{_atu}->pcs2intervals($pset);
+      $self->{$layer}[$DSC] = $self->{_atu}->pcs2intervals($pset);
 
     } else {
       croak "descending scale unknown to Music::Scales"
         unless is_scale($dsc);
       my @dsc_nums = get_scale_nums( $dsc, 1 );
 
-      $self->{$layer}->{-1} = [];
+      $self->{$layer}[$DSC] = [];
       for my $i ( 1 .. $#dsc_nums ) {
-        unshift @{ $self->{$layer}->{-1} },
-          $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
+        unshift @{ $self->{$layer}[$DSC] }, $dsc_nums[ $i - 1 ] - $dsc_nums[$i];
       }
     }
   }
@@ -510,7 +558,7 @@ sub set_scale_intervals {
   # Complete scales to sum to 12 by default (Music::Scales omits the VII
   # to I interval, and who knows what a custom list would contain).
   if ( !$self->{_non_octave_scales} ) {
-    for my $ref ( $self->{$layer}->{1}, $self->{$layer}->{-1} ) {
+    for my $ref ( @{ $self->{$layer} } ) {
       my $sum = sum @$ref;
       if ( $sum < $self->{_DEG_IN_SCALE} ) {
         push @$ref, $self->{_DEG_IN_SCALE} - $sum;
@@ -529,6 +577,31 @@ sub set_transpose {
   return $self;
 }
 
+sub steps {
+  my ( $self, $from, $to, $scale ) = @_;
+
+  croak "from pitch must be a number" if !looks_like_number $from;
+  croak "to pitch must be a number"   if !looks_like_number $to;
+  croak "scales must reference to two array ref of intervals"
+    if !defined $scale
+    or ref $scale ne 'ARRAY';
+
+  my $delta = $to - $from;
+  my $dir = $delta < 0 ? $DSC : $ASC;
+  $delta = abs $delta;
+
+  my $running_total = 0;
+  my $steps         = 0;
+  my $index         = 0;
+  while ( $running_total < $delta ) {
+    $index = $steps++ % @$scale;
+    $index = $#{$scale} - $index if $dir == $DSC;
+    $running_total += $scale->[$index];
+  }
+
+  return $steps, $running_total - $delta, $dir, $scale->[$index];
+}
+
 1;
 __END__
 
@@ -542,8 +615,9 @@ Music::Canon - routines for musical canon construction
   my $mc = Music::Canon->new;
 
   # options affecting all the *_map routines
-  $mc->set_contrary(1);
-  $mc->set_retrograde(1);
+  # NOTE that contrary motion and retrograde are enabled by default
+  $mc->set_contrary(0);
+  $mc->set_retrograde(0);
   $mc->set_transpose(12);     # by semitones
   $mc->set_transpose(q{c'});  # or "to" a lilypond note
 
@@ -552,9 +626,10 @@ Music::Canon - routines for musical canon construction
   $mc->exact_map_reset;
 
   # trickier is the so-called modal mapping;
-  # default is Major to Major
+  # NOTE default is Major to Major (change with set_scale_intervals)
   @new_phrase = $mc->modal_map(qw/0 7 4 0 -1 0/);
   $mc->modal_map_reset;
+  $mc->reset_modal_pitches;
 
   # or instead modal mapping by scale name (via Music::Scales)
   $mc->set_scale_intervals( 'input',  'minor'  );
@@ -698,10 +773,6 @@ initial starting pitches (derived from the input phrase and transpose
 setting, or via pitches set via the B<set_modal_pitches> method) form
 the point of linkage between the two scales or really any arbitrary
 interval sequences.
-
-Transposition (via B<set_transpose>) will influence the output linking
-pitch, unless that value was already set via a prior conversion or
-B<set_modal_pitches> call.
 
 An example may help illustrate this function. Assuming Major to
 Major conversion, contrary motion, and a transposition by an octave
@@ -958,7 +1029,30 @@ semitones, or to a particular lilypond note:
 Returns the L<Music::Canon> object, so can be chained with other
 method calls.
 
+=item B<steps> I<pitch_from>, I<pitch_to>, I<scale_intervals>
+
+A mostly internal routine used in particular by B<modal_map> that given a
+starting pitch and a destination pitch, along with the intervals for a scale
+(such as returned by B<get_scale_intervals>), returns the number of scale steps
+between the two pitches, any possible chromatic offset (in semitones, 0 by
+default), the direction of the motion, and the last interval from the scale
+(this detail is handy for chromatic conversions).
+
 =back
+
+=head1 BUGS
+
+=head2 Reporting Bugs
+
+If the bug is in the latest version, send a report to the author.
+Patches that fix problems or add new features are welcome.
+
+L<http://github.com/thrig/Music-Canon>
+
+=head2 Known Issues
+
+B<modal_map> is still being developed, and likely has problems, notably
+transpositions to chromatic or even impossible scale degrees.
 
 =head1 SEE ALSO
 

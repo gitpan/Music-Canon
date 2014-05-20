@@ -117,7 +117,7 @@ is( $mc->get_retrograde, 1, 'set retrograde true' );
 $mc->set_transpose(q{c'});
 is( $mc->get_transpose, q{c'}, 'transpose to lilypond note' );
 
-$mc = Music::Canon->new(keep_state => 0);
+$mc = Music::Canon->new( keep_state => 0 );
 
 # some value that is probably not set by default
 my $rand_transpose = 200 + int rand 100;
@@ -141,11 +141,8 @@ is( $mc->get_transpose, 0, 'reset transpose' );
 # phrase that does not start on zero, as there shouldn't be anything
 # special about what the starting pitch is.
 @phrase = map { $_ += 10 + int rand 10 } @phrase;
-$deeply->(
-  [ $mc->exact_map( \@phrase ) ],
-  \@phrase,
-  'start on non-zero pitch'
-);
+$deeply->( [ $mc->exact_map( \@phrase ) ], \@phrase,
+  'start on non-zero pitch' );
 
 ########################################################################
 #

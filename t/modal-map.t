@@ -69,13 +69,31 @@ for my $i (@major_to_major_undefined) {
 # the link on the tonic (69 or a'). Need resets as switching to A-major
 # to A-major conversions.
 $mc->modal_map_reset;
-isa_ok( $mc->set_modal_pitches(69), 'Music::Canon' );
-$deeply->( [ $mc->get_modal_pitches ], [ 69, undef ], 'get_modal_pitches' );
+isa_ok( $mc->set_modal_pitches( 69, 69 + 12 ), 'Music::Canon' );
+$deeply->( [ $mc->get_modal_pitches ], [ 69, 69 + 12 ], 'get_modal_pitches' );
 
-# expect output linking pitch to be set by this transpose (alternative
-# would be set_modal_pitches(69,69+12))
-$mc->set_transpose(12);
+#$mc->set_transpose(12);
 
+# so, modal pitches equal and transpose zero then start pitch same, unless
+# the scales are radically different? also transpose before or after or maybe
+# apply the steps? or maybe choice of how first pitch done? Hmm, or always
+# applly the steps? If things the same, then Eb will step up to a Eb otherwise
+# something else...
+#
+# Hmm, could do either $pitch + $transpose method directly (and from that start
+# note then line things up to the output modal pitch) or always go through the
+# modal pitches, with transpose thrown in as necessary. Optimization: input
+# modal pitch should link to output modal pitch (unless tranpose).
+#
+# transpose bias would do a transpose, then figure out where subsequent pitches
+# map to via the output mode, linking pitch. This may produce different results
+# for the first and then subsequent pitches (like the floating V note and then
+# I phrase in a fugue except here probably different)
+#
+# modal bias would do as much as possible via the modal pitches and steps from
+# them, though with transpose in there somewhere if set. Given name of routine,
+# this method favored. Soooo start pitch needs to roll through the steps thing.
+# Plus transpose somehow.
 $deeply->(
   [ $mc->modal_map(qw/64 69 69 71 73 74 73 71 69 68 64 66 68 69 69/) ],
   [qw/81 81 83 85 86 83 81 80 78 76 78 80 81 81 86/],
@@ -86,8 +104,7 @@ $mc->set_modal_pitches( 81, 69 );
 $deeply->( [ $mc->get_modal_pitches ], [ 81, 69 ], 'get_modal_pitches' );
 
 isa_ok( $mc->reset_modal_pitches, 'Music::Canon' );
-$deeply->( [ $mc->get_modal_pitches ], [ undef, undef ],
-  'get_modal_pitches' );
+$deeply->( [ $mc->get_modal_pitches ], [ undef, undef ], 'get_modal_pitches' );
 
 ########################################################################
 #
@@ -102,11 +119,8 @@ $mc = Music::Canon->new;
 $mc->set_scale_intervals( 'input', 'mm' );
 my @mm_via_scales = $mc->get_scale_intervals('input');
 
-$mc->set_scale_intervals(
-  'output',
-  [ 2, 1, 2, 2, 2, 2 ],
-  [ 2, 1, 2, 2, 1, 2 ]
-);
+$mc->set_scale_intervals( 'output', [ 2, 1, 2, 2, 2, 2 ],
+  [ 2, 1, 2, 2, 1, 2 ] );
 my @mm_via_intervals = $mc->get_scale_intervals('output');
 $deeply->(
   \@mm_via_intervals, \@mm_via_scales, 'Music::Scales vs. raw intervals'
@@ -157,10 +171,17 @@ $deeply->(
 # Comparison with numbers worked out by hand in notebook using ASC to
 # DSC and DSC to ASC as appropriate for the local motion under contrary
 # output motion.
+warn "ooh la la\n";
 $mc->set_retrograde(0);
 $deeply->(
   [ $mc->modal_map(
-      qw/75 71 72 74 75 74 75 77 79 80 79 84 83 84 80 79 77 80 79 77 75 74 75 77 79 77 79 80 77 79 77 75 74 75 74 72 71 72 74 75 74 75 77 79 77 79 80 77 84 82 80 79 80 79 77 75 77 75 74 72 74 75 71 72/
+      qw/75 71 72 74 75 74 75 77 79 80
+        79 84 83 84 80 79 77 80 79 77
+        75 74 75 77 79 77 79 80 77 79
+        77 75 74 75 74 72 71 72 74 75
+        74 75 77 79 77 79 80 77 84 82
+        80 79 80 79 77 75 77 75 74 72
+        74 75 71 72/
     )
   ],
   [ qw/68 73 72 70 68 71 68 67 65 64 65 60 61 60 63 65 67 64 65 67 69 71 68 67 65 67 65 64 67 65 67 69 71 68 71 72 73 72 70 68 71 68 67 65 67 65 64 67 60 62 63 65 64 65 67 69 67 69 71 72 70 68 73 72/
@@ -190,10 +211,7 @@ my @run_down = 32 .. 59;
 # interval sum boundary of modal mapping, among other bugs.
 $mc->set_scale_intervals( 'input',  '6-35' );
 $mc->set_scale_intervals( 'output', '6-35' );
-$deeply->(
-  [ $mc->modal_map(@run_up) ],
-  \@run_down, 'whole tone modal run up'
-);
+$deeply->( [ $mc->modal_map(@run_up) ], \@run_down, 'whole tone modal run up' );
 $mc->modal_map_reset;
 $deeply->(
   [ $mc->modal_map( reverse @run_down ) ],
@@ -255,8 +273,7 @@ impossible();
 always_one();
 middle();
 
-$mc =
-  Music::Canon->new( chrome_weight => -1, contrary => 0, retrograde => 0 );
+$mc = Music::Canon->new( chrome_weight => -1, contrary => 0, retrograde => 0 );
 impossible();
 always_one();
 $mc->set_modal_pitches( 48, 59 );

@@ -1,0 +1,41 @@
+This file contains message digests of all files listed in MANIFEST,
+signed via the Module::Signature module, version 0.73.
+
+To verify the content in this distribution, first make sure you have
+Module::Signature installed, then type:
+
+    % cpansign -v
+
+It will check each file's integrity, as well as the signature's
+validity.  If "==> Signature verified OK! <==" is not displayed,
+the distribution may already have been compromised, and you should
+not run its Makefile.PL or Build.PL.
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+SHA1 c2c23a3b0620123c81de052fb1c1c47b0b928475 Changes
+SHA1 846252ea9428ead5a9f387bcd843958f5759609c LICENSE
+SHA1 5e026da1f95b703b1dd0add3bf4797fe65024885 MANIFEST
+SHA1 e557c41e81ad6c028b5fa5006d54ab44851c6556 META.json
+SHA1 59101ec77366181b8a8c25f1a3a483897ce94f9c META.yml
+SHA1 0f986ca93feb8362a9842a13aebeac196a01bb52 Makefile.PL
+SHA1 b21a4f837a835a11474f8ffd7c427a019af15cb7 README
+SHA1 36e000113a5388c5dc4aa7665f4d349f70fcecc1 eg/brutecanon
+SHA1 fb66e9bf99bc768a087472466255909e96339f41 eg/conversion-charts
+SHA1 e53ad625c325370594a128ec48ceca505746f0e4 lib/Music/Canon.pm
+SHA1 d766c614846e20a6b5d8f163f3f0fdc5aff9a9f6 t/Music-Canon.t
+SHA1 cfe2b562b69302a2dcfc4887c2f8bde7ecdd494d t/modal-map-beyond-thunderdome.t
+SHA1 05f97f8ca6aee645045cb00288171fa81396d07e t/modal-map.t
+SHA1 3ef65383d82f059f56f43236663119c01974decb t/pod.t
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1
+
+iQEcBAEBAgAGBQJTe3AiAAoJEDTEVWqwTuCU72gIAKIi+g7TSPYwSJSL7DcmX5Jx
+TdvqoWRmiI29HR4QNWVP/wCSCnviMaB1sk72AViJe+ZnMqj38vIwUDr1X6Bjr2ma
+xGcta5ZjrEXSeL/QbfCFVFw6VoLPm5GdWW+hStn6+ywL4NGgrDDIyKSNX5Z/Fsjs
+GlCQdzx2PUfrH9FS2RIlHFBLpDBjQPpRtpwMCx8jMbM1Y+u7Vmf9tWW4Rmz3T7fk
+ExsGbg+Hw1M1sqZrW73CvyoI6aFf253YAhTnnD6u05QWK3/nvCOeopMSFY7s77uT
+760Q63vVlCoRqUhmv6XrLvhc6/bGYAtixhwEv2TLrWxfc6ZLxbSH9OUxwnfEBeU=
+=mbjc
+-----END PGP SIGNATURE-----

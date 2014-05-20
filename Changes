@@ -1,1 +1,4 @@
-See the git repository.
+See the git repository. Otherwise, of note:
+
+ * v1.00 introduced breaking changes to modal_map, which previously did not
+   really support transpositions at all. Sorry.
