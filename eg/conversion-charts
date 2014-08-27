@@ -7,10 +7,6 @@ scale with the Diatonics of the input scale, and then fill in what
 chromatics are possible in the output, 'x' otherwise, then fill in
 the output pitch numbers as possible.
 
-Hmm, do not use DSC at all if the DSC does not differ? That would lead
-to a this-or-that mode of algorithm... (unless can use DSC in both cases
-without creating problems)
-
 * Major to Major, link on MIDI pitch 72, parallel motion (transpose of
   0; a real example would doubtless have a non-zero transpose as
   otherwise this would be an expensive way to gain no new information).

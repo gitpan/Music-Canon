@@ -1,7 +1,8 @@
 #!perl
 #
 # Weaving a safety net being a tedious and thankless task in the
-# short term...
+# short term... but then you rewrite the module to use Moo and
+# hey hey tests are great!
 
 use strict;
 use warnings;
@@ -27,41 +28,31 @@ is( $mc->get_retrograde, 1, 'default retrograde' );
 
 # major/major the default
 $deeply->(
-  [ $mc->get_scale_intervals('input') ],
-  [ [qw(2 2 1 2 2 2 1)], [qw(1 2 2 2 1 2 2)] ],
+  [ $mc->get_modal_scale_in ],
+  [ [qw(2 2 1 2 2 2 1)], [qw(2 2 1 2 2 2 1)] ],
   'major intervals check input'
 );
 $deeply->(
-  [ $mc->get_scale_intervals('output') ],
-  [ [qw(2 2 1 2 2 2 1)], [qw(1 2 2 2 1 2 2)] ],
+  [ $mc->get_modal_scale_out ],
+  [ [qw(2 2 1 2 2 2 1)], [qw(2 2 1 2 2 2 1)] ],
   'major intervals check output'
 );
 
 # set intervals by scale name (via Music::Scales)
-my $resp = $mc->set_scale_intervals( 'input', 'aeolian' );
-isa_ok( $resp, 'Music::Canon' );
+$mc->set_modal_scale_in( 'aeolian' );
 
 # or by interval (aeolian again)
-$resp = $mc->set_scale_intervals( 'output', [qw/2 1 2 2 1 2 2/] );
-isa_ok( $resp, 'Music::Canon' );
+$mc->set_modal_scale_out( [qw/2 1 2 2 1 2 2/] );
 
 $deeply->(
-  [ $mc->get_scale_intervals('input') ],
-  [ [qw(2 1 2 2 1 2 2)], [qw(2 2 1 2 2 1 2)] ],
+  [ $mc->get_modal_scale_in ],
+  [ [qw(2 1 2 2 1 2 2)], [qw(2 1 2 2 1 2 2)] ],
   'minor intervals check input'
 );
 $deeply->(
-  [ $mc->get_scale_intervals('output') ],
-  [ [qw(2 1 2 2 1 2 2)], [qw(2 2 1 2 2 1 2)] ],
+  [ $mc->get_modal_scale_out ],
+  [ [qw(2 1 2 2 1 2 2)], [qw(2 1 2 2 1 2 2)] ],
   'minor intervals check output'
-);
-
-# and adjusting only dsc intervals
-$mc->set_scale_intervals( 'output', undef, [qw/2 2 2 2 2 2/] );
-$deeply->(
-  [ $mc->get_scale_intervals('output') ],
-  [ [qw(2 1 2 2 1 2 2)], [qw(2 2 2 2 2 2)] ],
-  'custom dsc intervals check'
 );
 
 ########################################################################
@@ -71,25 +62,8 @@ $deeply->(
 $mc = Music::Canon->new;
 
 $deeply->( [ $mc->exact_map(qw/0 1 2/) ], [qw/-2 -1 0/], 'exact map' );
-isa_ok( $mc->exact_map_reset, 'Music::Canon' );
 
-# vs. individual calls for each note
-{
-  my @input = qw/0 1 2/;
-  my @output;
-  for my $p (@input) {
-    push @output, $mc->exact_map($p);
-  }
-
-  # Retrograde is meaningless if doing note-by-note calls, as there is
-  # never anything that can be reversed...
-  @output = reverse @output if $mc->get_retrograde;
-
-  $deeply->( \@output, [qw/-2 -1 0/], 'exact map multiple calls' );
-  $mc->exact_map_reset;
-}
-
-isa_ok( $mc->set_transpose(60), 'Music::Canon' );
+$mc->set_transpose(60);
 $deeply->(
   [ $mc->exact_map(qw/2 9 5 2 1 2 4 5/) ],
   [qw/59 60 62 63 62 59 55 62/]
@@ -101,12 +75,12 @@ $deeply->(
 
 $mc = Music::Canon->new;
 
-isa_ok( $mc->set_contrary(0), 'Music::Canon' );
+$mc->set_contrary(0);
 is( $mc->get_contrary, 0, 'set contrary false' );
 $mc->set_contrary(1);
 is( $mc->get_contrary, 1, 'set contrary true' );
 
-isa_ok( $mc->set_retrograde(0), 'Music::Canon' );
+$mc->set_retrograde(0);
 is( $mc->get_retrograde, 0, 'set retrograde false' );
 $mc->set_retrograde(1);
 is( $mc->get_retrograde, 1, 'set retrograde true' );
@@ -132,10 +106,8 @@ $deeply->(
   [ map { $_ += $rand_transpose } @phrase ],
   'exact map via rand transpose'
 );
-# should not need due to keep_state => 0
-#$mc->exact_map_reset;
 
-$mc->set_transpose;
+$mc->set_transpose(0);
 is( $mc->get_transpose, 0, 'reset transpose' );
 
 # phrase that does not start on zero, as there shouldn't be anything
@@ -151,10 +123,10 @@ $deeply->( [ $mc->exact_map( \@phrase ) ], \@phrase,
 $mc = Music::Canon->new;
 
 # Forte Numbers!
-$mc->set_scale_intervals( 'input', '5-35', '5-25' );
+$mc->set_modal_scale_in( '5-35', '5-25' );
 $deeply->(
-  [ $mc->get_scale_intervals('input') ],
-  [ [qw/2 2 3 2 3/], [qw/4 3 2 1 2/] ],
+  [ $mc->get_modal_scale_in ],
+  [ [qw/2 2 3 2 3/], [qw/2 1 2 3 4/] ],
   'scale intervals by Forte'
 );
 
@@ -162,11 +134,10 @@ $mc = Music::Canon->new( non_octave_scales => 1 );
 my @run_up   = 59 .. 86;
 my @run_down = 32 .. 59;
 $deeply->( [ $mc->exact_map(@run_up) ], \@run_down, 'exact run up' );
-$mc->exact_map_reset;
 $deeply->(
   [ $mc->exact_map( reverse @run_down ) ],
   [ reverse @run_up ],
   'exact run down'
 );
 
-plan tests => 31;
+plan tests => 23;

@@ -2,25 +2,28 @@ Music::Canon - utility routines for musical canon construction
 
 To install this module, use CPAN, for example:
 
-  cpanm Music::Canon
+  cpan Music::Canon
 
-For the current release, see:
+For the source code, see:
 
 http://github.com/thrig/Music-Canon
 
-which can be installed by cloning that directory then running `cpanm .`
-therein.
+which can be installed once git and cpanm are installed by e.g.
+
+  git clone https://github.com/thrig/Music-Canon
+  cd Music-Canon
+  cpanm .
 
 DEPENDENCIES
 
-Some knowledge of music theory will benefit the user. In particular,
-"The Technique of Canon" by Hugo Norden, if available, is an excellent
-resource on writing canons.
+Some knowledge of music theory will benefit the user. In particular, "The
+Technique of Canon" by Hugo Norden, if available, is an excellent resource on
+writing canons.
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2013 Jeremy Mates
+Copyright (C) 2013,2014 Jeremy Mates
 
-This library is free software; you can redistribute it and/or modify it
-under the same terms as Perl itself, either Perl version 5.16 or, at
-your option, any later version of Perl 5 you may have available.
+This library is free software; you can redistribute it and/or modify it under
+the same terms as Perl itself, either Perl version 5.16 or, at your option, any
+later version of Perl 5 you may have available.

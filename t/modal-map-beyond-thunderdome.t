@@ -27,8 +27,8 @@ $mc = Music::Canon->new( contrary => 0, retrograde => 0 );
 # Middle c (60) -> g (55) in g-minor, transpose from scale degree 1 (g)
 # to 3 (bes)
 # $mc->set_modal_pitches( 55, 58 );
-$mc->set_scale_intervals( input  => 'aeolian' );
-$mc->set_scale_intervals( output => 'aeolian' );
+$mc->set_modal_scale_in('aeolian');
+$mc->set_modal_scale_out('aeolian');
 $mc->set_transpose('bes');
 # 'got' pattern not possible using scale intervals? something cut?
 $deeply->(
@@ -37,7 +37,26 @@ $deeply->(
   'minor i->III'
 );
 
+# Bug in v1.00 revealed by trying to do things in Bflat Major... or really how
+# transpose should be defined when the tonic is a non-(n%12==0) pitch.
+$mc = Music::Canon->new( contrary => 0, retrograde => 0 );
+$mc->set_modal_pitches( 70, 70 );
+$mc->set_transpose(2); # Bes to C
+$deeply->(
+  [ $mc->modal_map( qw/74 70 69 70 74 75 72 71 72 76 77/ ) ],
+  [                 qw/75 72 70 72 75 77 74 73 74 78 79/ ],
+  'bit of a subject'
+);
+
+$mc = Music::Canon->new;
+$mc->modal_hook( sub { "testy" } );
+$deeply->(
+  [ $mc->modal_map( 0, 1 ) ],
+  [ 'testy', 0 ],
+  "major chromatic conversion 0 to 1 with hook"
+);
+
 # TODO need to work out handling of transpose to chromatic or unpossible scale
 # degrees.
 
-plan tests => 3;
+plan tests => 5;
