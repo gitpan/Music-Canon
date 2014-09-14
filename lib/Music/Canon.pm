@@ -17,7 +17,7 @@ use Music::Scales qw/get_scale_nums is_scale/;
 use namespace::clean;
 use Scalar::Util qw/blessed looks_like_number/;
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 
 # Array indices for ascending versus descending scales (as some minor scales
 # are different, depending)

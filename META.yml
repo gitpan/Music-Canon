@@ -16,4 +16,4 @@ no_index:
     - inc
 resources:
   repository: git://github.com/thrig/Music-PitchNum.git
-version: '2.00'
+version: '2.01'

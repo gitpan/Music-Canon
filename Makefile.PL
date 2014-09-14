@@ -35,6 +35,7 @@ my %params = (
     'List::Util'        => 0,
     'Moo'               => 0,
     'Music::AtonalUtil' => 0,
+    'Music::PitchNum'   => 0,
     'Music::Scales'     => 0,
     'namespace::clean'  => 0,
     'Scalar::Util'      => 0,
